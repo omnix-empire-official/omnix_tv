@@ -968,8 +968,9 @@
         
         async function loadStreams() {
             try {
-                // Using corsproxy to avoid CORS issues if any, though raw github might work directly.
-                const url = 'https://github.com/maybetv/jojo/raw/refs/heads/main/Ser.m3u';
+                // Using corsproxy to avoid CORS issues
+                const targetUrl = encodeURIComponent('https://raw.githubusercontent.com/maybetv/jojo/main/Ser.m3u');
+                const url = `https://api.allorigins.win/raw?url=${targetUrl}`;
                 const response = await fetch(url);
                 if (!response.ok) throw new Error('Network response was not ok');
                 const text = await response.text();
