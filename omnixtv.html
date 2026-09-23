@@ -1005,9 +1005,17 @@
                     const commaIndex = line.lastIndexOf(',');
                     currentStream.name = commaIndex !== -1 ? line.substring(commaIndex + 1).trim() : 'Unknown Stream';
                 } else if (line && !line.startsWith('#')) {
-                    // Strip IPTV specific headers separated by pipe '|'
-                    const pipeIndex = line.indexOf('|');
-                    currentStream.url = pipeIndex !== -1 ? line.substring(0, pipeIndex) : line;
+                    let streamUrl = line;
+                    
+                    // Akamai token workaround: convert |cookie=hdntl=... to ?hdntl=... or &hdntl=...
+                    if (streamUrl.includes('|cookie=')) {
+                        streamUrl = streamUrl.replace('|cookie=', '');
+                    } else if (streamUrl.includes('|')) {
+                        // For other types, just strip the pipe and anything after
+                        streamUrl = streamUrl.split('|')[0];
+                    }
+                    
+                    currentStream.url = streamUrl;
                     streams.push(currentStream);
                     currentStream = {}; // reset
                 }
