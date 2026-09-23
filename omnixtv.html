@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Omnix TV</title>
+    <!-- Using Phosphor Icons for modern thin UI look -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- HLS.js for m3u8 playback -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #000;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .player-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            background: #000;
+            overflow: hidden;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* Overlay & Idle state */
+        .player-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            opacity: 1;
+            visibility: visible;
+            z-index: 10;
+        }
+
+        .player-container.idle .player-overlay {
+            opacity: 0;
+            visibility: hidden;
+            cursor: none;
+        }
+
+        /* Base button styles */
+        button {
+            background: transparent;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.2s;
+            outline: none;
+        }
+        button:hover {
+            opacity: 0.8;
+        }
+
+        /* ---- TOP BAR ---- */
+        .top-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 24px 32px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%);
+        }
+
+        .top-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .icon-btn i {
+            font-size: 20px;
+        }
+
+        .video-title {
+            font-size: 16px;
+            font-weight: 500;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+            letter-spacing: 0.3px;
+        }
+
+        .top-right {
+            display: flex;
+            gap: 24px;
+        }
+
+        .settings-container {
+            position: relative;
+        }
+
+        .top-text-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+        }
+
+        .top-text-btn i {
+            font-size: 20px;
+        }
+
+        .auto-text {
+            color: #a3a3a3;
+            margin-left: 4px;
+            font-weight: 400;
+        }
+
+        /* ---- DROPDOWN MENUS ---- */
+        .dropdown-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 16px;
+            background: rgba(22, 24, 31, 0.95);
+            border-radius: 8px;
+            padding: 12px 0;
+            min-width: 240px;
+            display: none;
+            flex-direction: column;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 100;
+        }
+
+        .dropdown-menu.show {
+            display: flex;
+        }
+
+        .audio-sub-menu {
+            min-width: 320px;
+        }
+
+        .audio-sub-columns {
+            display: flex;
+            padding: 0 20px;
+        }
+
+        .audio-sub-columns .column {
+            flex: 1;
+        }
+
+        .column-title {
+            font-size: 11px;
+            color: #8c8c8c;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+            padding-left: 28px;
+        }
+
+        .dropdown-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 10px 20px;
+            cursor: pointer;
+            transition: background 0.2s;
+            gap: 12px;
+        }
+
+        .dropdown-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .dropdown-item i {
+            font-size: 16px;
+            margin-top: 2px;
+            color: transparent;
+        }
+
+        .dropdown-item.active i {
+            color: #3f8cff;
+        }
+
+        .item-content {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .item-title, .item-text {
+            font-size: 14px;
+            font-weight: 500;
+            color: #d4d4d4;
+        }
+
+        .dropdown-item.active .item-text {
+            font-weight: 600;
+            color: #fff;
+        }
+        .dropdown-item.active .item-title {
+            color: #fff;
+        }
+
+        .item-sub {
+            font-size: 12px;
+            color: #8c8c8c;
+        }
+
+        .subscribe-badge {
+            color: #f7a600;
+            font-size: 10px;
+            font-weight: 700;
+            margin-left: 6px;
+            letter-spacing: 0.5px;
+        }
+
+        .dropdown-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 8px 20px;
+        }
+
+        .report-issue {
+            opacity: 0.8;
+        }
+
+        .dropdown-item.report-issue i {
+            color: #a3a3a3;
+        }
+
+        .dropdown-item.report-issue:hover i {
+            color: #fff;
+        }
+
+        .report-issue .item-text {
+            color: #a3a3a3;
+            font-weight: 400;
+        }
+
+        .report-issue.justify-center {
+            justify-content: center;
+            padding-left: 0;
+            padding-right: 0;
+        }
+        .report-issue.justify-center i {
+            margin-right: -4px;
+        }
+        
+        /* STREAMS MENU CUSTOM STYLES */
+        .streams-menu {
+            min-width: 320px;
+            max-height: 450px;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+
+        /* Custom Scrollbar for Streams Menu */
+        .streams-menu::-webkit-scrollbar {
+            width: 6px;
+        }
+        .streams-menu::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .streams-menu::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+        .streams-menu::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        .stream-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            gap: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .stream-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .stream-item.active {
+            background: rgba(255, 255, 255, 0.1);
+            border-left: 3px solid #3f8cff;
+        }
+
+        .stream-thumb {
+            width: 80px;
+            height: 45px;
+            border-radius: 4px;
+            object-fit: cover;
+            background-color: #222;
+        }
+
+        .stream-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stream-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #fff;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        /* ---- CENTER CONTROLS ---- */
+        .center-controls {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        .buffer-spinner {
+            width: 64px;
+            height: 64px;
+            border: 4px solid rgba(255,255,255,0.2);
+            border-top-color: #3f8cff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+
+        .center-icon {
+            font-size: 72px;
+            color: rgba(255,255,255,0.9);
+            filter: drop-shadow(0 4px 8px rgba(0,0,0,0.6));
+            opacity: 0;
+            transform: scale(0.5);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .center-icon.show-animate {
+            display: block !important;
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* ---- BOTTOM CONTROLS ---- */
+        .bottom-gradient {
+            background: linear-gradient(0deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 40%, rgba(0,0,0,0) 100%);
+            padding: 0 32px 24px 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* Progress Row */
+        .progress-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            width: 100%;
+        }
+
+        .progress-container {
+            flex-grow: 1;
+            padding: 10px 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.3);
+            position: relative;
+            transition: height 0.1s;
+        }
+
+        .progress-container:hover .progress-bar-bg {
+            height: 5px;
+        }
+
+        .progress-bar-buffered {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.5);
+            width: 0%;
+        }
+
+        .progress-bar-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: #3f8cff;
+            width: 0%;
+        }
+
+        .progress-thumb {
+            width: 12px;
+            height: 12px;
+            background: #fff;
+            border-radius: 50%;
+            position: absolute;
+            right: -6px;
+            top: 50%;
+            transform: translateY(-50%) scale(1);
+            box-shadow: 0 0 4px rgba(0,0,0,0.4);
+        }
+
+        .time-display {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+            min-width: 45px;
+            text-align: right;
+        }
+
+        /* Action Buttons Row */
+        .control-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .left-actions {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .right-actions {
+            display: flex;
+            align-items: center;
+        }
+
+        /* Icons */
+        .action-btn {
+            font-size: 24px;
+            opacity: 0.9;
+        }
+
+        .action-btn:hover {
+            opacity: 1;
+        }
+
+        .skip-btn {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            font-size: 14px;
+        }
+        .skip-btn i {
+            font-size: 24px;
+        }
+        .skip-num {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .play-btn i {
+            font-size: 28px;
+        }
+
+        /* Volume */
+        .volume-container {
+            display: flex;
+            align-items: center;
+        }
+
+        .volume-slider-wrapper {
+            width: 0;
+            overflow: hidden;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+        }
+
+        .volume-container:hover .volume-slider-wrapper {
+            width: 80px;
+            margin-left: 10px;
+        }
+
+        .volume-slider {
+            width: 100%;
+            -webkit-appearance: none;
+            background: linear-gradient(to right, #3f8cff 100%, rgba(255,255,255,0.4) 100%);
+            height: 4px;
+            border-radius: 2px;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .volume-slider::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: transparent;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            background: #fff;
+            margin-top: -4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="player-container" id="playerContainer">
+        <!-- Video Element -->
+        <video id="videoElement"></video>
+
+        <!-- Player Overlay / Controls -->
+        <div class="player-overlay" id="playerOverlay">
+            
+            <!-- Top Bar -->
+            <div class="top-controls">
+                <div class="top-left">
+                    <button class="icon-btn back-btn" aria-label="Back">
+                        <i class="ph-bold ph-arrow-left"></i>
+                    </button>
+                    <h1 class="video-title" id="videoTitle">Loading...</h1>
+                </div>
+                <div class="top-right">
+                    
+                    <!-- NEW: Streams Dropdown -->
+                    <div class="settings-container">
+                        <button class="top-text-btn" id="streamsBtn" aria-label="Streams">
+                            <i class="ph-bold ph-list-dashes"></i>
+                            <span>Streams</span>
+                        </button>
+                        
+                        <div class="dropdown-menu streams-menu" id="streamsDropdown">
+                            <div id="streamsList">
+                                <!-- Dynamically populated by JS -->
+                                <div style="padding: 16px; text-align: center; color: #a3a3a3;">Loading streams...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-container">
+                        <button class="top-text-btn" id="qualityBtn" aria-label="Quality">
+                            <i class="ph-bold ph-monitor-play"></i>
+                            <span>Quality <span class="auto-text">Auto</span></span>
+                        </button>
+                        
+                        <div class="dropdown-menu" id="qualityDropdown">
+                            <div class="dropdown-item active">
+                                <i class="ph-bold ph-check"></i>
+                                <div class="item-text">Auto</div>
+                            </div>
+                            <!-- Static quality items for UI demo -->
+                        </div>
+                    </div>
+                    
+                    <div class="settings-container">
+                        <button class="top-text-btn" id="audioSubBtn" aria-label="Audio & Subtitles">
+                            <i class="ph-bold ph-subtitles"></i>
+                            <span>Audio & Subtitles</span>
+                        </button>
+                        
+                        <div class="dropdown-menu audio-sub-menu" id="audioSubDropdown">
+                            <div class="audio-sub-columns">
+                                <div class="column">
+                                    <div class="column-title">AUDIO</div>
+                                    <div class="dropdown-item active">
+                                        <i class="ph-bold ph-check"></i>
+                                        <div class="item-text">English</div>
+                                    </div>
+                                </div>
+                                <div class="column">
+                                    <div class="column-title">SUBTITLES</div>
+                                    <div class="dropdown-item active">
+                                        <i class="ph-bold ph-check"></i>
+                                        <div class="item-text">Off</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center Buffering Spinner -->
+            <div class="center-controls" id="centerAction">
+                <div class="buffer-spinner" id="bufferSpinner"></div>
+                <i class="ph-fill ph-play-circle center-icon" id="centerIcon" style="display: none;"></i>
+            </div>
+
+            <!-- Bottom Controls -->
+            <div class="bottom-gradient">
+                
+                <!-- Progress Row -->
+                <div class="progress-row">
+                    <div class="progress-container" id="progressContainer">
+                        <div class="progress-bar-bg" id="progressBg">
+                            <div class="progress-bar-buffered" id="progressBuffered"></div>
+                            <div class="progress-bar-fill" id="progressFill">
+                                <div class="progress-thumb"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="time-display" id="timeDisplay">00:00</div>
+                </div>
+
+                <!-- Action Buttons Row -->
+                <div class="control-actions">
+                    <div class="left-actions">
+                        <button class="action-btn skip-btn" id="rewindBtn" aria-label="Rewind 10s">
+                            <i class="ph-bold ph-caret-double-left"></i>
+                            <span class="skip-num">10</span>
+                        </button>
+                        <button class="action-btn play-btn" id="playPauseBtn" aria-label="Play/Pause">
+                            <i class="ph-fill ph-play"></i>
+                        </button>
+                        <button class="action-btn skip-btn" id="forwardBtn" aria-label="Forward 10s">
+                            <span class="skip-num">10</span>
+                            <i class="ph-bold ph-caret-double-right"></i>
+                        </button>
+                        
+                        <div class="volume-container">
+                            <button class="action-btn" id="volumeBtn" aria-label="Volume">
+                                <i class="ph-fill ph-speaker-high"></i>
+                            </button>
+                            <div class="volume-slider-wrapper">
+                                <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.01" value="1">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="right-actions">
+                        <button class="action-btn" id="fullscreenBtn" aria-label="Fullscreen">
+                            <i class="ph-bold ph-corners-out"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('videoElement');
+        const playerContainer = document.getElementById('playerContainer');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const centerIcon = document.getElementById('centerIcon');
+        const bufferSpinner = document.getElementById('bufferSpinner');
+        const rewindBtn = document.getElementById('rewindBtn');
+        const forwardBtn = document.getElementById('forwardBtn');
+        const volumeBtn = document.getElementById('volumeBtn');
+        const volumeSlider = document.getElementById('volumeSlider');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const progressBg = document.getElementById('progressBg');
+        const progressFill = document.getElementById('progressFill');
+        const progressBuffered = document.getElementById('progressBuffered');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const playerOverlay = document.getElementById('playerOverlay');
+
+        // Dropdowns
+        const qualityBtn = document.getElementById('qualityBtn');
+        const qualityDropdown = document.getElementById('qualityDropdown');
+        const audioSubBtn = document.getElementById('audioSubBtn');
+        const audioSubDropdown = document.getElementById('audioSubDropdown');
+        
+        // Streams
+        const streamsBtn = document.getElementById('streamsBtn');
+        const streamsDropdown = document.getElementById('streamsDropdown');
+        const streamsList = document.getElementById('streamsList');
+        const videoTitle = document.getElementById('videoTitle');
+
+        let idleTimer;
+        let isDragging = false;
+        let hls; // HLS.js instance
+
+        // Initial Pause state icon
+        playPauseBtn.innerHTML = '<i class="ph-fill ph-play"></i>'; 
+
+        // Play/Pause Logic
+        function togglePlay() {
+            if (video.paused) {
+                video.play();
+                playPauseBtn.innerHTML = '<i class="ph-fill ph-pause"></i>';
+                animateCenterIcon('ph-play-circle');
+            } else {
+                video.pause();
+                playPauseBtn.innerHTML = '<i class="ph-fill ph-play"></i>';
+                animateCenterIcon('ph-pause-circle');
+            }
+        }
+
+        function animateCenterIcon(iconClass) {
+            centerIcon.className = `ph-fill ${iconClass} center-icon`;
+            centerIcon.classList.add('show-animate');
+            setTimeout(() => {
+                centerIcon.classList.remove('show-animate');
+                setTimeout(() => {
+                    if(!centerIcon.classList.contains('show-animate')) {
+                        centerIcon.style.display = 'none';
+                    }
+                }, 300);
+            }, 500);
+        }
+
+        // Buffering
+        video.addEventListener('waiting', () => { bufferSpinner.style.display = 'block'; });
+        video.addEventListener('playing', () => { bufferSpinner.style.display = 'none'; });
+        video.addEventListener('canplay', () => { bufferSpinner.style.display = 'none'; });
+
+        // Time Formatting
+        function formatTime(seconds) {
+            if(isNaN(seconds) || !isFinite(seconds)) return "00:00";
+            const hrs = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            if (hrs > 0) {
+                return `${hrs < 10 ? '0' : ''}${hrs}:${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+            }
+            return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+        }
+
+        // Progress Update
+        function updateProgress() {
+            if (isNaN(video.duration) || !isFinite(video.duration)) {
+                // Live stream or not loaded
+                progressFill.style.width = `100%`;
+                timeDisplay.textContent = "LIVE";
+                return;
+            }
+            
+            const currentTime = video.currentTime;
+            const duration = video.duration;
+            
+            // Fill
+            const percent = (currentTime / duration) * 100;
+            progressFill.style.width = `${percent}%`;
+            
+            timeDisplay.textContent = formatTime(currentTime);
+
+            // Buffered
+            if (video.buffered.length > 0) {
+                const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+                const bufferedPercent = (bufferedEnd / duration) * 100;
+                progressBuffered.style.width = `${bufferedPercent}%`;
+            }
+        }
+
+        // Scrubbing
+        function scrub(e) {
+            if (isNaN(video.duration) || !isFinite(video.duration)) return;
+            const rect = progressBg.getBoundingClientRect();
+            let clickX = e.clientX - rect.left;
+            clickX = Math.max(0, Math.min(clickX, rect.width));
+            const percent = clickX / rect.width;
+            video.currentTime = percent * video.duration;
+        }
+
+        progressBg.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            scrub(e);
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) scrub(e);
+        });
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // Skip
+        function skip(time) {
+            video.currentTime += time;
+        }
+        rewindBtn.addEventListener('click', (e) => { e.stopPropagation(); skip(-10); });
+        forwardBtn.addEventListener('click', (e) => { e.stopPropagation(); skip(10); });
+
+        // Volume
+        function updateVolumeSliderFill() {
+            const percentage = volumeSlider.value * 100;
+            volumeSlider.style.background = `linear-gradient(to right, #3f8cff ${percentage}%, rgba(255,255,255,0.4) ${percentage}%)`;
+        }
+
+        function updateVolume() {
+            video.volume = volumeSlider.value;
+            updateVolumeSliderFill();
+            updateVolumeIcon();
+        }
+        function toggleMute(e) {
+            if(e) e.stopPropagation();
+            if (video.volume > 0) {
+                video.dataset.lastVolume = video.volume;
+                video.volume = 0;
+                volumeSlider.value = 0;
+            } else {
+                video.volume = video.dataset.lastVolume || 1;
+                volumeSlider.value = video.volume;
+            }
+            updateVolumeSliderFill();
+            updateVolumeIcon();
+        }
+        function updateVolumeIcon() {
+            if (video.volume === 0) {
+                volumeBtn.innerHTML = '<i class="ph-fill ph-speaker-slash"></i>';
+            } else if (video.volume < 0.5) {
+                volumeBtn.innerHTML = '<i class="ph-fill ph-speaker-low"></i>';
+            } else {
+                volumeBtn.innerHTML = '<i class="ph-fill ph-speaker-high"></i>';
+            }
+        }
+
+        volumeSlider.addEventListener('input', (e) => { e.stopPropagation(); updateVolume(); });
+        volumeBtn.addEventListener('click', toggleMute);
+
+        // Fullscreen
+        function toggleFullscreen(e) {
+            if(e) e.stopPropagation();
+            if (!document.fullscreenElement) {
+                playerContainer.requestFullscreen().catch(e => console.log(e));
+                fullscreenBtn.innerHTML = '<i class="ph-bold ph-corners-in"></i>';
+            } else {
+                document.exitFullscreen();
+                fullscreenBtn.innerHTML = '<i class="ph-bold ph-corners-out"></i>';
+            }
+        }
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+
+        // Player Click
+        playerOverlay.addEventListener('click', (e) => {
+            if(e.target === playerOverlay || e.target.classList.contains('center-controls') || e.target.classList.contains('bottom-gradient') || e.target.classList.contains('top-controls')) {
+                togglePlay();
+            }
+        });
+        playPauseBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+
+        // Event Listeners
+        video.addEventListener('timeupdate', updateProgress);
+        video.addEventListener('loadedmetadata', updateProgress);
+
+        // Idle Timer
+        function resetIdleTimer() {
+            playerContainer.classList.remove('idle');
+            clearTimeout(idleTimer);
+            if (!video.paused) {
+                idleTimer = setTimeout(() => {
+                    playerContainer.classList.add('idle');
+                }, 3000);
+            }
+        }
+        playerContainer.addEventListener('mousemove', resetIdleTimer);
+        playerContainer.addEventListener('mousedown', resetIdleTimer);
+        playerContainer.addEventListener('keydown', resetIdleTimer);
+        playerContainer.addEventListener('mouseleave', () => {
+            if (!video.paused) playerContainer.classList.add('idle');
+        });
+        video.addEventListener('play', resetIdleTimer);
+        video.addEventListener('pause', () => {
+            clearTimeout(idleTimer);
+            playerContainer.classList.remove('idle');
+        });
+
+        // Keys
+        document.addEventListener('keydown', (e) => {
+            switch(e.code) {
+                case 'Space':
+                case 'KeyK':
+                    e.preventDefault();
+                    togglePlay();
+                    break;
+                case 'KeyJ':
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    skip(-10);
+                    break;
+                case 'KeyL':
+                case 'ArrowRight':
+                    e.preventDefault();
+                    skip(10);
+                    break;
+                case 'KeyM':
+                    toggleMute();
+                    break;
+                case 'KeyF':
+                    toggleFullscreen();
+                    break;
+            }
+        });
+
+        // Dropdowns Toggle Logic
+        function closeAllDropdowns() {
+            qualityDropdown.classList.remove('show');
+            audioSubDropdown.classList.remove('show');
+            streamsDropdown.classList.remove('show');
+        }
+
+        qualityBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isShowing = qualityDropdown.classList.contains('show');
+            closeAllDropdowns();
+            if (!isShowing) qualityDropdown.classList.add('show');
+        });
+
+        audioSubBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isShowing = audioSubDropdown.classList.contains('show');
+            closeAllDropdowns();
+            if (!isShowing) audioSubDropdown.classList.add('show');
+        });
+
+        streamsBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isShowing = streamsDropdown.classList.contains('show');
+            closeAllDropdowns();
+            if (!isShowing) streamsDropdown.classList.add('show');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!qualityDropdown.contains(e.target) && e.target !== qualityBtn) {
+                qualityDropdown.classList.remove('show');
+            }
+            if (!audioSubDropdown.contains(e.target) && e.target !== audioSubBtn) {
+                audioSubDropdown.classList.remove('show');
+            }
+            if (!streamsDropdown.contains(e.target) && e.target !== streamsBtn) {
+                streamsDropdown.classList.remove('show');
+            }
+        });
+
+        // Initialize Volume Slider Fill on load
+        updateVolumeSliderFill();
+
+        // ----------------------------------------------------
+        // M3U PLAYLIST FETCHING & PARSING
+        // ----------------------------------------------------
+        
+        async function loadStreams() {
+            try {
+                // Using corsproxy to avoid CORS issues if any, though raw github might work directly.
+                const url = 'https://github.com/maybetv/jojo/raw/refs/heads/main/Ser.m3u';
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Network response was not ok');
+                const text = await response.text();
+                
+                const streams = parseM3U(text);
+                renderStreams(streams);
+                
+                // Play first stream automatically
+                if(streams.length > 0) {
+                    playStream(streams[0], null);
+                } else {
+                    streamsList.innerHTML = '<div style="padding: 16px; text-align: center; color: #a3a3a3;">No streams found.</div>';
+                }
+            } catch (error) {
+                console.error('Error fetching streams:', error);
+                streamsList.innerHTML = '<div style="padding: 16px; text-align: center; color: #a3a3a3;">Failed to load streams. Network error or CORS issue.</div>';
+            }
+        }
+
+        function parseM3U(data) {
+            const lines = data.split('\n');
+            const streams = [];
+            let currentStream = {};
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line.startsWith('#EXTINF:')) {
+                    // Extract logo
+                    const logoMatch = line.match(/tvg-logo="([^"]+)"/);
+                    currentStream.logo = logoMatch ? logoMatch[1] : '';
+
+                    // Extract name (everything after the last comma)
+                    const commaIndex = line.lastIndexOf(',');
+                    currentStream.name = commaIndex !== -1 ? line.substring(commaIndex + 1).trim() : 'Unknown Stream';
+                } else if (line && !line.startsWith('#')) {
+                    currentStream.url = line;
+                    streams.push(currentStream);
+                    currentStream = {}; // reset
+                }
+            }
+            return streams;
+        }
+
+        function renderStreams(streams) {
+            streamsList.innerHTML = '';
+            streams.forEach((stream, index) => {
+                const item = document.createElement('div');
+                item.className = 'stream-item';
+                
+                // Use a placeholder if no logo
+                const logoSrc = stream.logo || 'https://via.placeholder.com/80x45/222222/FFFFFF?text=TV';
+
+                item.innerHTML = `
+                    <img class="stream-thumb" src="${logoSrc}" alt="thumb" onerror="this.src='https://via.placeholder.com/80x45/222222/FFFFFF?text=TV'">
+                    <div class="stream-info">
+                        <div class="stream-name">${stream.name}</div>
+                    </div>
+                `;
+
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // Remove active class from all
+                    document.querySelectorAll('.stream-item').forEach(el => el.classList.remove('active'));
+                    item.classList.add('active');
+                    
+                    playStream(stream, item);
+                    closeAllDropdowns();
+                });
+
+                streamsList.appendChild(item);
+            });
+        }
+
+        function playStream(stream, element) {
+            videoTitle.textContent = stream.name;
+            
+            // Update active class if called directly
+            if (!element) {
+                const firstItem = streamsList.querySelector('.stream-item');
+                if (firstItem) firstItem.classList.add('active');
+            }
+
+            bufferSpinner.style.display = 'block';
+
+            if (Hls.isSupported()) {
+                if (hls) {
+                    hls.destroy();
+                }
+                hls = new Hls();
+                hls.loadSource(stream.url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                    video.play().catch(e => console.log('Autoplay prevented', e));
+                    playPauseBtn.innerHTML = '<i class="ph-fill ph-pause"></i>';
+                    bufferSpinner.style.display = 'none';
+                });
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    if (data.fatal) {
+                        bufferSpinner.style.display = 'none';
+                        console.error('HLS error:', data);
+                    }
+                });
+            }
+            else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // For Safari natively supporting HLS
+                video.src = stream.url;
+                video.addEventListener('loadedmetadata', function() {
+                    video.play().catch(e => console.log('Autoplay prevented', e));
+                    playPauseBtn.innerHTML = '<i class="ph-fill ph-pause"></i>';
+                    bufferSpinner.style.display = 'none';
+                });
+            }
+        }
+
+        // Initialize streams loading
+        loadStreams();
+
+    </script>
+</body>
+</html>
