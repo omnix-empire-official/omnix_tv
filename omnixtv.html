@@ -968,9 +968,8 @@
         
         async function loadStreams() {
             try {
-                // Using corsproxy to avoid CORS issues
-                const targetUrl = encodeURIComponent('https://raw.githubusercontent.com/maybetv/jojo/main/Ser.m3u');
-                const url = `https://api.allorigins.win/raw?url=${targetUrl}`;
+                // Direct fetch from GitHub Raw (it sends CORS headers)
+                const url = 'https://raw.githubusercontent.com/maybetv/jojo/main/Ser.m3u';
                 const response = await fetch(url);
                 if (!response.ok) throw new Error('Network response was not ok');
                 const text = await response.text();
@@ -1006,7 +1005,9 @@
                     const commaIndex = line.lastIndexOf(',');
                     currentStream.name = commaIndex !== -1 ? line.substring(commaIndex + 1).trim() : 'Unknown Stream';
                 } else if (line && !line.startsWith('#')) {
-                    currentStream.url = line;
+                    // Strip IPTV specific headers separated by pipe '|'
+                    const pipeIndex = line.indexOf('|');
+                    currentStream.url = pipeIndex !== -1 ? line.substring(0, pipeIndex) : line;
                     streams.push(currentStream);
                     currentStream = {}; // reset
                 }
