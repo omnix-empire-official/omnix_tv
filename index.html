@@ -1049,17 +1049,10 @@
                 }
                 
                 const streams = (data.channels || []).map(ch => {
-                    let streamUrl = ch.url;
-                    // For Hotstar streams, append token if not already there
-                    if (hotstarToken && streamUrl.includes('hotstar.com') && !streamUrl.includes(hotstarToken.split('=')[0])) {
-                        const sep = streamUrl.includes('?') ? '&' : '?';
-                        streamUrl += sep + hotstarToken;
-                    }
-
                     return {
                         name: ch.name,
                         logo: ch.logo,
-                        url: streamUrl,
+                        url: ch.url,
                         keyId: ch.keyId,
                         key: ch.key
                     };
@@ -1214,13 +1207,15 @@
                             }
                         }
                         
-                        // Hotstar token logic for segment requests
-                        if (hotstarToken && request.uris[0].includes("hotstar.com")) {
-                            const tokenName = hotstarToken.split('=')[0]; 
-                            if (!request.uris[0].includes(tokenName)) {
-                                const sep = request.uris[0].includes("?") ? "&" : "?";
-                                request.uris[0] += sep + hotstarToken;
+                        // Hotstar proxy logic for manifest and segment requests
+                        if (request.uris[0].includes("hotstar.com")) {
+                            let uri = request.uris[0];
+                            // Append token if missing
+                            if (hotstarToken && !uri.includes(hotstarToken.split('=')[0])) {
+                                uri += (uri.includes("?") ? "&" : "?") + hotstarToken;
                             }
+                            // Route through proxy
+                            request.uris[0] = 'https://jtv-proxy.sanjusanjay0444.workers.dev/?url=' + encodeURIComponent(uri);
                         }
                         
                         // Custom stream headers
@@ -1245,12 +1240,21 @@
         }
 
         function fallbackToHls(stream) {
+            let streamUrl = stream.url;
+            if (streamUrl.includes("hotstar.com")) {
+                let uri = streamUrl;
+                if (hotstarToken && !uri.includes(hotstarToken.split('=')[0])) {
+                    uri += (uri.includes("?") ? "&" : "?") + hotstarToken;
+                }
+                streamUrl = 'https://jtv-proxy.sanjusanjay0444.workers.dev/?url=' + encodeURIComponent(uri);
+            }
+
             if (Hls.isSupported()) {
                 if (hls) {
                     hls.destroy();
                 }
                 hls = new Hls();
-                hls.loadSource(stream.url);
+                hls.loadSource(streamUrl);
                 hls.attachMedia(video);
                 hls.on(Hls.Events.MANIFEST_PARSED, function () {
                     video.play().catch(e => console.log('Autoplay prevented', e));
@@ -1264,7 +1268,7 @@
                     }
                 });
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                video.src = stream.url;
+                video.src = streamUrl;
                 video.addEventListener('loadedmetadata', function() {
                     video.play().catch(e => console.log('Autoplay prevented', e));
                     playPauseBtn.innerHTML = '<i class="ph-fill ph-pause"></i>';
