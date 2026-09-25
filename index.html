@@ -9,6 +9,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- HLS.js for m3u8 playback -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <!-- Shaka Player for DASH/DRM playback -->
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.7.6/dist/shaka-player.compiled.js"></script>
     <style>
         * {
             margin: 0;
@@ -705,6 +707,52 @@
         let idleTimer;
         let isDragging = false;
         let hls; // HLS.js instance
+        let shakaPlayer = null;
+        let jioCookie = null;
+        let hotstarToken = "";
+
+        const COOKIE_URL = "https://allinonereborn2.online/jstrweb2/cookies.json";
+        
+        async function fetchCookie() {
+            try {
+                const res = await fetch(COOKIE_URL, { cache: "no-store" });
+                if (!res.ok) return null;
+                const ct = res.headers.get("Content-Type") || "";
+                if (ct.includes("application/json")) {
+                    const data = await res.json();
+                    return extractCookie(data);
+                }
+                const text = (await res.text()).trim();
+                return text || null;
+            } catch(e) { return null; }
+        }
+
+        function extractCookie(data) {
+            if (Array.isArray(data)) {
+                for (const item of data) {
+                    const r = extractCookie(item);
+                    if (r) return r;
+                }
+            } else if (data && typeof data === "object") {
+                if (data.cookie) return String(data.cookie).trim();
+                for (const v of Object.values(data)) {
+                    if (typeof v === "object") {
+                        const r = extractCookie(v);
+                        if (r) return r;
+                    }
+                }
+            }
+            return null;
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                shakaPlayer = new shaka.Player(video);
+            }
+            jioCookie = await fetchCookie();
+            loadStreams();
+        });
 
         // Initial Pause state icon
         playPauseBtn.innerHTML = '<i class="ph-fill ph-play"></i>'; 
@@ -967,14 +1015,55 @@
         // ----------------------------------------------------
         
         async function loadStreams() {
+            const apiUrls = [
+                'https://jtv-proxy.sanjusanjay0444.workers.dev/?feed=hotstar&_=1790346123913',
+                'https://jtv-proxy.sanjusanjay0444.workers.dev/?feed=hotstar' // Backup API
+            ];
+            
+            let data = null;
+            let fetchError = null;
+
+            for (const url of apiUrls) {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`Network response was not ok for ${url}`);
+                    data = await response.json();
+                    break; // Successfully fetched, exit loop
+                } catch (error) {
+                    console.warn(`Failed to fetch from ${url}:`, error);
+                    fetchError = error;
+                }
+            }
+
+            if (!data) {
+                console.error('Error fetching streams from all URLs:', fetchError);
+                streamsList.innerHTML = '<div style="padding: 16px; text-align: center; color: #a3a3a3;">Failed to load streams. Network error or CORS issue.</div>';
+                return;
+            }
+
             try {
-                // Direct fetch from GitHub Raw (it sends CORS headers)
-                const url = 'https://raw.githubusercontent.com/maybetv/jojo/main/Ser.m3u';
-                const response = await fetch(url);
-                if (!response.ok) throw new Error('Network response was not ok');
-                const text = await response.text();
                 
-                const streams = parseM3U(text);
+                if (data.token) {
+                    hotstarToken = data.token;
+                }
+                
+                const streams = (data.channels || []).map(ch => {
+                    let streamUrl = ch.url;
+                    // For Hotstar streams, append token if not already there
+                    if (hotstarToken && streamUrl.includes('hotstar.com') && !streamUrl.includes(hotstarToken.split('=')[0])) {
+                        const sep = streamUrl.includes('?') ? '&' : '?';
+                        streamUrl += sep + hotstarToken;
+                    }
+
+                    return {
+                        name: ch.name,
+                        logo: ch.logo,
+                        url: streamUrl,
+                        keyId: ch.keyId,
+                        key: ch.key
+                    };
+                });
+                
                 renderStreams(streams);
                 
                 // Play first stream automatically
@@ -1004,15 +1093,41 @@
                     // Extract name (everything after the last comma)
                     const commaIndex = line.lastIndexOf(',');
                     currentStream.name = commaIndex !== -1 ? line.substring(commaIndex + 1).trim() : 'Unknown Stream';
+                } else if (line.startsWith('#KODITVE-PROP:clearkey=')) {
+                    let keyStr = line.split('=')[1].trim(); 
+                    keyStr = keyStr.replace(/"/g, '');
+                    let parts = keyStr.split(':');
+                    if (parts.length >= 2) {
+                        currentStream.keyId = parts[0];
+                        currentStream.key = parts[1];
+                    }
+                } else if (line.startsWith('#EXTVLCOPT:http-user-agent=')) {
+                    currentStream.userAgent = line.substring(27).trim();
+                } else if (line.startsWith('#EXTHTTP:')) {
+                    try {
+                        let json = JSON.parse(line.substring(9));
+                        if (json.Cookie) currentStream.cookie = json.Cookie;
+                        if (json.Origin) currentStream.origin = json.Origin;
+                        if (json.Referer) currentStream.referer = json.Referer;
+                        if (json['User-Agent']) currentStream.userAgent = json['User-Agent'];
+                    } catch(e){}
                 } else if (line && !line.startsWith('#')) {
                     let streamUrl = line;
                     
-                    // Akamai token workaround: convert |cookie=hdntl=... to ?hdntl=... or &hdntl=...
                     if (streamUrl.includes('|cookie=')) {
-                        streamUrl = streamUrl.replace('|cookie=', '');
+                        let c = streamUrl.split('|cookie=')[1].split('&')[0];
+                        currentStream.cookie = c;
+                        streamUrl = streamUrl.replace('|cookie=' + c, '');
+                        let urlParams = new URLSearchParams(streamUrl.includes('?') ? streamUrl.split('?')[1] : '');
+                        if (urlParams.has('referer')) currentStream.referer = urlParams.get('referer');
+                        if (urlParams.has('origin')) currentStream.origin = urlParams.get('origin');
+                        if (urlParams.has('user-agent')) currentStream.userAgent = urlParams.get('user-agent');
                     } else if (streamUrl.includes('|')) {
-                        // For other types, just strip the pipe and anything after
-                        streamUrl = streamUrl.split('|')[0];
+                        let parts = streamUrl.split('|');
+                        streamUrl = parts[0];
+                        let headers = parts[1];
+                        if (headers.includes('User-Agent=')) currentStream.userAgent = headers.split('User-Agent=')[1].split('&')[0];
+                        if (headers.includes('Referer=')) currentStream.referer = headers.split('Referer=')[1].split('&')[0];
                     }
                     
                     currentStream.url = streamUrl;
@@ -1053,7 +1168,7 @@
             });
         }
 
-        function playStream(stream, element) {
+        async function playStream(stream, element) {
             videoTitle.textContent = stream.name;
             
             // Update active class if called directly
@@ -1064,6 +1179,71 @@
 
             bufferSpinner.style.display = 'block';
 
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+
+            if (shakaPlayer) {
+                try {
+                    let clearKeys = {};
+                    if (stream.keyId && stream.key) {
+                        clearKeys[stream.keyId] = stream.key;
+                    }
+
+                    shakaPlayer.configure({
+                        drm: { clearKeys: Object.keys(clearKeys).length > 0 ? clearKeys : {} },
+                        manifest:{ defaultPresentationDelay:5 },
+                        streaming:{ lowLatencyMode:true, bufferingGoal:10, rebufferingGoal:2 }
+                    });
+
+                    shakaPlayer.getNetworkingEngine().clearAllRequestFilters();
+                    shakaPlayer.getNetworkingEngine().registerRequestFilter((type, request) => {
+                        // JioTV logic
+                        if (request.uris[0].includes(".jio.com") || request.uris[0].includes("jiotv")) {
+                            request.headers["Referer"] = "https://www.jiotv.com/";
+                            request.headers["User-Agent"] = "plaYtv/7.1.5 (Linux;Android 13) ExoPlayerLib/2.11.6";
+                            if (jioCookie) {
+                                request.headers["Cookie"] = jioCookie;
+                                let urlCookie = jioCookie.startsWith("__hdnea__=") ? jioCookie.substring(10) : jioCookie;
+                                if ((type === shaka.net.NetworkingEngine.RequestType.MANIFEST || type === shaka.net.NetworkingEngine.RequestType.SEGMENT) && !request.uris[0].includes("__hdnea__")) {
+                                    const sep = request.uris[0].includes("?") ? "&" : "?";
+                                    request.uris[0] += sep + "__hdnea__=" + urlCookie;
+                                }
+                            }
+                        }
+                        
+                        // Hotstar token logic for segment requests
+                        if (hotstarToken && request.uris[0].includes("hotstar.com")) {
+                            const tokenName = hotstarToken.split('=')[0]; 
+                            if (!request.uris[0].includes(tokenName)) {
+                                const sep = request.uris[0].includes("?") ? "&" : "?";
+                                request.uris[0] += sep + hotstarToken;
+                            }
+                        }
+                        
+                        // Custom stream headers
+                        if (stream.cookie) request.headers['Cookie'] = stream.cookie;
+                        if (stream.referer) request.headers['Referer'] = stream.referer;
+                        if (stream.origin) request.headers['Origin'] = stream.origin;
+                        if (stream.userAgent) request.headers['User-Agent'] = stream.userAgent;
+                    });
+
+                    await shakaPlayer.load(stream.url);
+                    video.play().catch(e => console.log('Autoplay prevented', e));
+                    playPauseBtn.innerHTML = '<i class="ph-fill ph-pause"></i>';
+                    bufferSpinner.style.display = 'none';
+                } catch (error) {
+                    console.error('Error loading with Shaka:', error);
+                    // Fallback to HLS.js if Shaka fails (e.g. for some plain m3u8 files)
+                    fallbackToHls(stream);
+                }
+            } else {
+                fallbackToHls(stream);
+            }
+        }
+
+        function fallbackToHls(stream) {
             if (Hls.isSupported()) {
                 if (hls) {
                     hls.destroy();
@@ -1082,9 +1262,7 @@
                         console.error('HLS error:', data);
                     }
                 });
-            }
-            else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                // For Safari natively supporting HLS
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = stream.url;
                 video.addEventListener('loadedmetadata', function() {
                     video.play().catch(e => console.log('Autoplay prevented', e));
@@ -1093,9 +1271,6 @@
                 });
             }
         }
-
-        // Initialize streams loading
-        loadStreams();
 
     </script>
 </body>
